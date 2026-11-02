@@ -25,8 +25,11 @@
   let notes: Notes = {};
   let notesItem: Item | null = null;
   let NotesComponent: typeof import('./NotesEditor.svelte').default | null = null;
+  let NoteContentComponent: typeof import('./NoteContent.svelte').default | null = null;
   let allItems: Item[] = [];
-  let view: 'dashboard' | 'manage' | 'tasks' = 'dashboard';
+  let view: 'dashboard' | 'manage' | 'tasks' | 'notes' = 'dashboard';
+  let selectedNoteId: string | null = null;
+  let noteQuery = '';
   let taskTitle = '';
   let taskUrl = '';
   let taskDetails = '';
@@ -66,7 +69,10 @@
 
   onMount(() => {
     if (!auth) return;
-    const syncView = () => { view = location.hash === '#/manage' ? 'manage' : location.hash === '#/tasks' ? 'tasks' : 'dashboard'; };
+    const syncView = () => {
+      view = location.hash === '#/manage' ? 'manage' : location.hash === '#/tasks' ? 'tasks' : location.hash === '#/notes' ? 'notes' : 'dashboard';
+      if (view === 'notes') void loadNoteContent();
+    };
     syncView();
     window.addEventListener('hashchange', syncView);
     const unsubscribe = onAuthStateChanged(auth, async (current) => {
@@ -81,10 +87,17 @@
     return () => { unsubscribe(); window.removeEventListener('hashchange', syncView); };
   });
 
-  function goTo(next: 'dashboard' | 'manage' | 'tasks') {
+  function goTo(next: 'dashboard' | 'manage' | 'tasks' | 'notes') {
     view = next;
     location.hash = next === 'dashboard' ? '/' : `/${next}`;
     window.scrollTo({ top: 0, behavior: 'instant' });
+    if (next === 'notes') void loadNoteContent();
+  }
+
+  async function loadNoteContent() {
+    if (NoteContentComponent) return;
+    try { NoteContentComponent = (await import('./NoteContent.svelte')).default; }
+    catch { message = 'Notes could not load. Please refresh and try again.'; }
   }
 
   async function loadProgress(current: User) {
@@ -280,7 +293,15 @@
 
   function isChecked(id: string, field: keyof Flags) { return progress[id]?.[field] === true; }
   function isComplete(item: Item) { return isChecked(item.id, item.kind === 'resource' ? 'training' : 'earned'); }
+  function noteStatus(item: Item) {
+    if (isComplete(item)) return 'Complete';
+    if (Object.values(progress[item.id] ?? empty()).some(Boolean)) return 'Started';
+    return 'Not started';
+  }
   $: allItems = allLibraryItems(library);
+  $: notedItems = allLibraryItems(library, true).filter((item) => Boolean(notes[item.id])).sort((a, b) => a.title.localeCompare(b.title));
+  $: matchingNotedItems = notedItems.filter((item) => `${item.title} ${item.provider} ${notes[item.id]}`.toLowerCase().includes(noteQuery.trim().toLowerCase()));
+  $: selectedNote = notedItems.find((item) => item.id === selectedNoteId) ?? notedItems[0] ?? null;
   $: visible = allItems.filter((item) =>
     (category === 'All' || item.category === category) &&
     (kind === 'all' || item.kind === kind) &&
@@ -408,6 +429,7 @@
     <div class="side-section-label">YOUR JOURNEY</div>
     <button class="side-link" class:active={view === 'dashboard'} onclick={() => goTo('dashboard')} aria-current={view === 'dashboard' ? 'page' : undefined}><span aria-hidden="true">▦</span> Dashboard</button>
     <button class="side-link" class:active={view === 'tasks'} onclick={() => goTo('tasks')} aria-current={view === 'tasks' ? 'page' : undefined}><span aria-hidden="true">☑</span> Tasks</button>
+    <button class="side-link" class:active={view === 'notes'} onclick={() => goTo('notes')} aria-current={view === 'notes' ? 'page' : undefined}><span aria-hidden="true">▣</span> Notes</button>
     <button class="side-link" class:active={view === 'manage'} onclick={() => goTo('manage')} aria-current={view === 'manage' ? 'page' : undefined}><span aria-hidden="true">▤</span> Manage library</button>
     <div class="side-note">A calm place to keep your learning moving.</div>
     <div class="side-divider"></div>
@@ -422,9 +444,9 @@
   </aside>
 
   <main id="main-content">
-    <header class="topbar"><span class="breadcrumb">Workspace <span aria-hidden="true">/</span> <strong>{view === 'dashboard' ? 'Dashboard' : view === 'tasks' ? 'Tasks' : 'Manage library'}</strong></span><span class="topbar-right">{user.email} <button class="signout" onclick={logOut}>Sign out</button></span></header>
+    <header class="topbar"><span class="breadcrumb">Workspace <span aria-hidden="true">/</span> <strong>{view === 'dashboard' ? 'Dashboard' : view === 'tasks' ? 'Tasks' : view === 'notes' ? 'Notes' : 'Manage library'}</strong></span><span class="topbar-right">{user.email} <button class="signout" onclick={logOut}>Sign out</button></span></header>
     <div class="content">
-      <nav class="mobile-nav" aria-label="Pages"><button class:chosen={view === 'dashboard'} onclick={() => goTo('dashboard')} aria-current={view === 'dashboard' ? 'page' : undefined}>Dashboard</button><button class:chosen={view === 'tasks'} onclick={() => goTo('tasks')} aria-current={view === 'tasks' ? 'page' : undefined}>Tasks</button><button class:chosen={view === 'manage'} onclick={() => goTo('manage')} aria-current={view === 'manage' ? 'page' : undefined}>Manage library</button></nav>
+      <nav class="mobile-nav" aria-label="Pages"><button class:chosen={view === 'dashboard'} onclick={() => goTo('dashboard')} aria-current={view === 'dashboard' ? 'page' : undefined}>Dashboard</button><button class:chosen={view === 'tasks'} onclick={() => goTo('tasks')} aria-current={view === 'tasks' ? 'page' : undefined}>Tasks</button><button class:chosen={view === 'notes'} onclick={() => goTo('notes')} aria-current={view === 'notes' ? 'page' : undefined}>Notes</button><button class:chosen={view === 'manage'} onclick={() => goTo('manage')} aria-current={view === 'manage' ? 'page' : undefined}>Manage library</button></nav>
       {#if view === 'dashboard'}
       <section class="hero" aria-labelledby="page-title">
         <div class="hero-copy"><span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> YOUR LEARNING SPACE</span><h1 id="page-title">Make progress<br /><em>visible.</em></h1><p>One place for your courses, certification goals, and the milestones that matter along the way.</p></div>
@@ -506,7 +528,7 @@
         </div>
         <p class="manage-help">Deleted entries can be restored using “Show deleted.” Progress flags are preserved if you restore an entry. Edit the type to decide whether it tracks training completion or a credential award.</p>
       </section>
-      {:else}
+      {:else if view === 'tasks'}
       <section class="tasks-page" aria-labelledby="tasks-heading">
         <div class="manage-heading"><div><span class="eyebrow dark">SAVE IT FOR LATER</span><h1 id="tasks-heading">Tasks.</h1><p>Capture a course link now. Add full details to your library when you have time.</p></div></div>
         {#if message}<p class="notice" role="status">{message}</p>{/if}
@@ -514,6 +536,25 @@
         <form class="task-form" onsubmit={saveTask}><div class="form-heading"><h2>{taskEditingId ? 'Edit task' : 'Quick add'}</h2>{#if taskEditingId}<button type="button" class="text-button" onclick={resetTaskForm}>Cancel edit</button>{/if}</div><div class="task-form-grid"><label>Course or task title<input bind:value={taskTitle} maxlength="180" placeholder="Optional if you paste a link" /></label><label>Course link<input type="url" bind:value={taskUrl} maxlength="500" placeholder="https://example.com/course" /></label><label class="wide">Details for later<textarea bind:value={taskDetails} maxlength="1000" rows="2" placeholder="Why did you save this?"></textarea></label></div>{#if taskError}<p class="notice warning" role="alert">{taskError}</p>{/if}<div class="form-actions"><button type="submit" class="primary-button">{taskEditingId ? 'Save changes' : 'Add task'}</button><span class="task-hint">A title or link is enough to save.</span></div></form>
         <div class="task-filter" aria-label="Filter tasks"><button class:chosen={taskFilter === 'open'} onclick={() => taskFilter = 'open'} aria-pressed={taskFilter === 'open'}>To do ({tasks.filter((task) => !task.done && !task.deleted).length})</button><button class:chosen={taskFilter === 'done'} onclick={() => taskFilter = 'done'} aria-pressed={taskFilter === 'done'}>Done ({tasks.filter((task) => task.done && !task.deleted).length})</button><button class:chosen={taskFilter === 'deleted'} onclick={() => taskFilter = 'deleted'} aria-pressed={taskFilter === 'deleted'}>Deleted</button></div>
         <div class="task-list">{#each taskList as task (task.id)}<article class="task-row"><div class="task-main">{#if !task.deleted}<label class="task-check"><input type="checkbox" checked={task.done} onchange={(event) => updateTask(task, { done: event.currentTarget.checked })} aria-label={`Mark ${task.title} ${task.done ? 'to do' : 'done'}`} /></label>{/if}<div><h2>{task.title}</h2><p>{task.details || 'Saved for later'} · Added {new Date(task.createdAt).toLocaleDateString()}</p>{#if task.url}<a href={task.url} target="_blank" rel="noopener noreferrer">{task.url} ↗</a>{/if}</div></div><div class="task-actions">{#if task.deleted}<button class="secondary-button" onclick={() => updateTask(task, { deleted: false })}>Restore</button>{:else}<button class="secondary-button" onclick={() => promoteTask(task)}>Add to library</button><button class="secondary-button" onclick={() => editTask(task)}>Edit</button><button class="danger-button" onclick={() => deleteTask(task)}>Delete</button>{/if}</div></article>{:else}<div class="empty-state"><h3>{taskFilter === 'open' ? 'Nothing to do yet' : taskFilter === 'done' ? 'No completed tasks' : 'No deleted tasks'}</h3><p>Use quick add above to capture a course when you find it.</p></div>{/each}</div>
+      </section>
+      {:else}
+      <section class="notes-page" aria-labelledby="notes-page-heading">
+        <div class="manage-heading"><div><span class="eyebrow dark">YOUR NOTEBOOK</span><h1 id="notes-page-heading">Notes.</h1><p>Browse the notes you have saved for courses and credentials.</p></div><span class="notes-count">{notedItems.length} {notedItems.length === 1 ? 'note' : 'notes'}</span></div>
+        {#if message}<p class="notice" role="status">{message}</p>{/if}
+        {#if notedItems.length}
+          <div class="notes-collection">
+            <div class="notes-index"><label class="notes-search">Search notes<input type="search" bind:value={noteQuery} placeholder="Search titles or note text" /></label><div class="notes-index-list">{#each matchingNotedItems as item (item.id)}<button class:selected={selectedNote?.id === item.id} onclick={() => selectedNoteId = item.id} aria-current={selectedNote?.id === item.id ? 'true' : undefined}><strong>{item.title}</strong><span>{item.provider}</span></button>{:else}<p class="notes-index-empty">No notes match your search.</p>{/each}</div></div>
+            {#if selectedNote}
+              <article class="note-detail" aria-labelledby="selected-note-title">
+                <div class="note-course"><div class="note-course-meta"><span class="kind-pill" class:credential={selectedNote.kind === 'credential'}>{entryTypeOf(selectedNote)}</span><span>{selectedNote.provider}</span><span>{selectedNote.category}</span></div><h2 id="selected-note-title">{selectedNote.title}</h2><p>{selectedNote.summary}</p><div class="note-course-actions"><span class="note-status" class:complete={noteStatus(selectedNote) === 'Complete'} class:started={noteStatus(selectedNote) === 'Started'} aria-label={`Progress status: ${noteStatus(selectedNote)}`}>Status: {noteStatus(selectedNote)}</span><a href={selectedNote.url} target="_blank" rel="noopener noreferrer">Open course ↗</a>{#if library.hiddenIds.includes(selectedNote.id)}<span class="note-hidden">Deleted from library</span>{/if}</div></div>
+                <div class="note-body-heading"><h3>My note</h3><button class="primary-button" onclick={() => openNotes(selectedNote)}>Edit note</button></div>
+                {#if NoteContentComponent}<svelte:component this={NoteContentComponent} markdown={notes[selectedNote.id]} />{:else}<p class="notes-loading" role="status">Loading note…</p>{/if}
+              </article>
+            {/if}
+          </div>
+        {:else}
+          <div class="empty-state"><h3>No notes saved yet</h3><p>Open any entry on the Dashboard and select Notes to start one.</p><button onclick={() => goTo('dashboard')}>Browse courses</button></div>
+        {/if}
       </section>
       {/if}
       <footer><span>Learning Atlas · Progress saved to your Firebase account, with a browser cache</span><span>Catalog updated November 2026 · Verify course availability with each provider</span></footer>

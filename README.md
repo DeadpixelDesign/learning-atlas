@@ -24,6 +24,8 @@ Open **Tasks** to quickly save a course title, link, or both. Add optional detai
 
 Every dashboard entry has a **Notes** button. Notes use a visual editor with a Markdown source mode; the stored value is Markdown text. **Import .md** replaces the open draft with a local Markdown file, and **Save notes** syncs it to your account. The editor is loaded only when you open Notes. For safety and database size, a single note is limited to 100,000 characters and all notes together to 300,000 characters. The editor is built with [Tiptap](https://tiptap.dev/docs/editor/markdown), which currently marks its Markdown extension as beta.
 
+The **Notes** tab collects entries with saved notes. Select one to read its note below the course title, description, and read-only progress status (**Not started**, **Started**, or **Complete**). **Edit note** opens the same visual and Markdown editor. Notes on deleted library entries stay visible here and are labeled accordingly.
+
 ## Run locally
 
 Requires Node.js 22 or newer. The supplied Firebase Web app configuration is already in `src/firebase.ts`.
