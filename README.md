@@ -2,6 +2,9 @@
 
 A responsive course and certification tracker built with Svelte and Vite. GitHub Pages hosts the static app; Firebase Authentication and Cloud Firestore provide real sign-in and account-scoped progress sync. The catalog includes the user's November 2026 resource guide, Canonical Academy, and the original Microsoft, AWS, Google Cloud, Linux, container, and web infrastructure resources.
 
+**Live site:** https://deadpixeldesign.github.io/learning-atlas/  
+**Source repository:** https://github.com/DeadpixelDesign/learning-atlas
+
 ## What the checks mean
 
 - **Learning resources** are courses, learning portals, or documentation. Their completion percentage advances when you check **Training complete**.
@@ -27,23 +30,18 @@ npm run build
 
 The deployable site is generated in `dist/`. Vite uses a relative base path, so the same build works at a GitHub Pages project URL such as `https://USERNAME.github.io/REPOSITORY/`.
 
-## Set up Firebase (free Spark plan)
+## Firebase configuration (free Spark plan)
 
 1. The dashboard is connected to the `cert-tracker-dashboard` Firebase Web app. Its public Web app configuration is in `src/firebase.ts`. **Do not put a password in GitHub or source files.**
-2. In **Authentication → Sign-in method**, enable **Email/Password**. In **Authentication → Users**, add the single email account requested for this dashboard and set its password there. Because a password was shared in this chat, consider using a new password before publishing.
-3. In **Authentication → Settings → Authorized domains**, add your GitHub Pages domain (`USERNAME.github.io`) and `localhost` for local testing if they are not already present.
-4. Create a **Cloud Firestore** database. In **Firestore Database → Rules**, replace the rules with the contents of `firestore.rules` and publish them. These rules allow only the requested email account to access its own progress document. Other paths remain denied.
-5. Sign in locally and confirm that a checkbox persists after refresh. Sign in on a second device to confirm sync. The last successful cloud save is authoritative when signing in.
+2. **Email/Password** authentication is enabled and the requested user account has been created in Firebase. Firebase handles password storage and checking.
+3. The default **Cloud Firestore** database is provisioned in `nam5 (United States)`. Its published rules match `firestore.rules`: only the requested account can read and write its own progress document. All other paths remain denied.
+4. Sign in and confirm that a checkbox persists after refresh. Sign in on a second device to confirm sync. The last successful cloud save is authoritative when signing in.
 
 The app does not create accounts or store passwords itself. Firebase handles password checking. The static JavaScript and catalog remain publicly downloadable on GitHub Pages; the rules protect the personal progress data, not the website code.
 
 ## Deploy to GitHub Pages
 
-1. Create a GitHub repository. Put the **contents of this `course-dashboard` folder at the repository root**, including `.github/workflows/deploy.yml` and `package-lock.json`.
-2. Commit the files and push them to a branch named `main`.
-3. In the repository, open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**.
-4. Open the **Actions** tab and wait for **Deploy to GitHub Pages** to succeed. The deployment job displays your site URL. Usually it is `https://USERNAME.github.io/REPOSITORY/`.
-5. Later pushes to `main` redeploy the site automatically. You can also run the workflow manually from the Actions tab.
+The repository is configured with **Settings → Pages → Source: GitHub Actions**. The workflow in `.github/workflows/deploy.yml` builds and deploys the site on pushes to `main`. You can also run it manually from the Actions tab. For a new repository, put the contents of this folder at its root and choose GitHub Actions as the Pages source.
 
 If your default branch has another name, change `branches: [main]` in `.github/workflows/deploy.yml`.
 
