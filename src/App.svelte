@@ -4,12 +4,16 @@
   import { doc, getDoc, setDoc } from 'firebase/firestore';
   import { catalog, categoryOptions, type Category, type EntryType, type Item } from './catalog';
   import { allLibraryItems, emptyLibrary, entryTypeOf, validateItem, validateLibrary, type Library } from './library';
+  import { validateNotes, type Notes } from './notes';
+  import { latestOpenTasks, validateTasks, type Task } from './tasks';
   import { auth, configured, db } from './firebase';
 
   type Flags = { started: boolean; training: boolean; exam: boolean; earned: boolean; badge: boolean; linkedin: boolean };
   type Progress = Record<string, Flags>;
   const STORAGE_KEY = 'learning-atlas-progress-v2';
   const LIBRARY_KEY = 'learning-atlas-library-v1';
+  const TASKS_KEY = 'learning-atlas-tasks-v1';
+  const NOTES_KEY = 'learning-atlas-notes-v1';
   const ALLOWED_EMAIL = 'pmatos@deadpixel.design';
   const empty = (): Flags => ({ started: false, training: false, exam: false, earned: false, badge: false, linkedin: false });
   const fields: (keyof Flags)[] = ['started', 'training', 'exam', 'earned', 'badge', 'linkedin'];
@@ -17,8 +21,18 @@
 
   let progress: Progress = {};
   let library: Library = emptyLibrary();
+  let tasks: Task[] = [];
+  let notes: Notes = {};
+  let notesItem: Item | null = null;
+  let NotesComponent: typeof import('./NotesEditor.svelte').default | null = null;
   let allItems: Item[] = [];
-  let view: 'dashboard' | 'manage' = 'dashboard';
+  let view: 'dashboard' | 'manage' | 'tasks' = 'dashboard';
+  let taskTitle = '';
+  let taskUrl = '';
+  let taskDetails = '';
+  let taskEditingId: string | null = null;
+  let taskError = '';
+  let taskFilter: 'open' | 'done' | 'deleted' = 'open';
   let manageQuery = '';
   let manageType: 'All' | EntryType = 'All';
   let showDeleted = false;
@@ -52,7 +66,7 @@
 
   onMount(() => {
     if (!auth) return;
-    const syncView = () => { view = location.hash === '#/manage' ? 'manage' : 'dashboard'; };
+    const syncView = () => { view = location.hash === '#/manage' ? 'manage' : location.hash === '#/tasks' ? 'tasks' : 'dashboard'; };
     syncView();
     window.addEventListener('hashchange', syncView);
     const unsubscribe = onAuthStateChanged(auth, async (current) => {
@@ -61,36 +75,46 @@
       lastWritten = '';
       if (current && !user) { await signOut(auth!); authError = 'This account is not allowed to use this dashboard.'; }
       if (user) await loadProgress(user);
-      else { progress = {}; library = emptyLibrary(); }
+      else { progress = {}; library = emptyLibrary(); tasks = []; notes = {}; notesItem = null; }
       authLoading = false;
     });
     return () => { unsubscribe(); window.removeEventListener('hashchange', syncView); };
   });
 
-  function goTo(next: 'dashboard' | 'manage') {
+  function goTo(next: 'dashboard' | 'manage' | 'tasks') {
     view = next;
-    location.hash = next === 'manage' ? '/manage' : '/';
+    location.hash = next === 'dashboard' ? '/' : `/${next}`;
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
   async function loadProgress(current: User) {
     const key = `${STORAGE_KEY}-${current.uid}`;
     const libraryKey = `${LIBRARY_KEY}-${current.uid}`;
+    const tasksKey = `${TASKS_KEY}-${current.uid}`;
+    const notesKey = `${NOTES_KEY}-${current.uid}`;
     try {
       const savedLibrary = localStorage.getItem(libraryKey);
       if (savedLibrary) library = validateLibrary(JSON.parse(savedLibrary));
       const saved = localStorage.getItem(key);
       if (saved) progress = validate(JSON.parse(saved), allLibraryItems(library, true));
+      const savedTasks = localStorage.getItem(tasksKey);
+      if (savedTasks) tasks = validateTasks(JSON.parse(savedTasks));
+      const savedNotes = localStorage.getItem(notesKey);
+      if (savedNotes) notes = validateNotes(JSON.parse(savedNotes), allLibraryItems(library, true));
     } catch { storageAvailable = false; message = 'Local cache could not be loaded.'; }
     try {
       const snapshot = await getDoc(doc(db!, 'users', current.uid, 'progress', 'current'));
       if (snapshot.exists()) {
         library = validateLibrary(snapshot.data().library);
         progress = validate(snapshot.data().progress, allLibraryItems(library, true));
+        tasks = validateTasks(snapshot.data().tasks);
+        notes = validateNotes(snapshot.data().notes, allLibraryItems(library, true));
         localStorage.setItem(key, JSON.stringify(progress));
         localStorage.setItem(libraryKey, JSON.stringify(library));
+        localStorage.setItem(tasksKey, JSON.stringify(tasks));
+        localStorage.setItem(notesKey, JSON.stringify(notes));
         lastWritten = serializedState();
-      } else if (Object.keys(progress).length || library.customItems.length || Object.keys(library.overrides).length || library.hiddenIds.length) {
+      } else if (Object.keys(progress).length || library.customItems.length || Object.keys(library.overrides).length || library.hiddenIds.length || tasks.length || Object.keys(notes).length) {
         saveTimer = setTimeout(flush, 0);
       }
     } catch {
@@ -118,13 +142,16 @@
       }
       try { localStorage.removeItem(`${STORAGE_KEY}-${user.uid}`); } catch { /* Private browsing may disable storage. */ }
       try { localStorage.removeItem(`${LIBRARY_KEY}-${user.uid}`); } catch { /* Private browsing may disable storage. */ }
+      try { localStorage.removeItem(`${TASKS_KEY}-${user.uid}`); } catch { /* Private browsing may disable storage. */ }
+      try { localStorage.removeItem(`${NOTES_KEY}-${user.uid}`); } catch { /* Private browsing may disable storage. */ }
     }
     await signOut(auth!);
     progress = {};
     library = emptyLibrary();
+    tasks = []; notes = {}; notesItem = null;
   }
 
-  function serializedState() { return JSON.stringify({ progress, library }); }
+  function serializedState() { return JSON.stringify({ progress, library, tasks, notes }); }
 
   async function flush() {
     if (!user || !db) return;
@@ -132,7 +159,7 @@
     const uid = user.uid;
     const serialized = serializedState();
     if (serialized === lastWritten) return;
-    const snapshot = { progress, library };
+    const snapshot = { progress, library, tasks, notes };
     let succeeded = false;
     try {
       activeWrite = setDoc(doc(db, 'users', uid, 'progress', 'current'), { ...snapshot, updatedAt: new Date().toISOString() });
@@ -171,6 +198,8 @@
       if (user) {
         localStorage.setItem(`${STORAGE_KEY}-${user.uid}`, JSON.stringify(progress));
         localStorage.setItem(`${LIBRARY_KEY}-${user.uid}`, JSON.stringify(library));
+        localStorage.setItem(`${TASKS_KEY}-${user.uid}`, JSON.stringify(tasks));
+        localStorage.setItem(`${NOTES_KEY}-${user.uid}`, JSON.stringify(notes));
       }
       storageAvailable = true;
     } catch {
@@ -183,6 +212,67 @@
 
   function save(next: Progress) { progress = next; persist(); }
   function saveLibrary(next: Library) { library = validateLibrary(next); persist(); }
+  function saveTasks(next: Task[]) { tasks = validateTasks(next); persist(); }
+
+  function saveNote(markdown: string) {
+    if (!notesItem) return;
+    try {
+      const next = { ...notes, [notesItem.id]: markdown };
+      if (!markdown) delete next[notesItem.id];
+      notes = validateNotes(next, allLibraryItems(library, true));
+      persist(); notesItem = null; message = 'Notes saved.';
+    } catch (error) { message = error instanceof Error ? error.message : 'Could not save notes.'; }
+  }
+
+  async function openNotes(item: Item) {
+    try {
+      NotesComponent = (await import('./NotesEditor.svelte')).default;
+      notesItem = item;
+    } catch { message = 'Notes editor could not load. Please refresh and try again.'; }
+  }
+
+  function resetTaskForm() { taskEditingId = null; taskTitle = ''; taskUrl = ''; taskDetails = ''; taskError = ''; }
+
+  function editTask(task: Task) {
+    taskEditingId = task.id; taskTitle = task.title; taskUrl = task.url;
+    taskDetails = task.details; taskError = ''; goTo('tasks');
+  }
+
+  function saveTask(event: SubmitEvent) {
+    event.preventDefault();
+    try {
+      const url = taskUrl.trim();
+      let title = taskTitle.trim();
+      if (!title && url) title = new URL(url).hostname.replace(/^www\./, '');
+      if (!title) throw new Error('Add a title or a course link.');
+      if (!taskEditingId && tasks.length >= 300) throw new Error('The task list has reached its 300 item limit.');
+      const now = new Date().toISOString();
+      const previous = tasks.find((task) => task.id === taskEditingId);
+      const task: Task = { id: previous?.id ?? `task-${crypto.randomUUID()}`, title, url,
+        details: taskDetails.trim(), createdAt: previous?.createdAt ?? now, updatedAt: now,
+        done: previous?.done ?? false, deleted: previous?.deleted ?? false };
+      saveTasks(previous ? tasks.map((item) => item.id === previous.id ? task : item) : [...tasks, task]);
+      resetTaskForm(); taskFilter = 'open'; message = 'Task saved.';
+    } catch (error) { taskError = error instanceof Error ? error.message : 'Could not save task.'; }
+  }
+
+  function updateTask(task: Task, changes: Partial<Task>) {
+    saveTasks(tasks.map((item) => item.id === task.id ? { ...item, ...changes, updatedAt: new Date().toISOString() } : item));
+  }
+
+  function deleteTask(task: Task) {
+    if (!confirm(`Delete “${task.title}” from Tasks? You can restore it later.`)) return;
+    updateTask(task, { deleted: true });
+    if (taskEditingId === task.id) resetTaskForm();
+    message = 'Task deleted. Use the Deleted filter to restore it.';
+  }
+
+  function promoteTask(task: Task) {
+    startNew('Course');
+    formTitle = task.title; formProvider = ''; formUrl = task.url;
+    formSummary = task.details; formCategory = 'AEO / SEO / SMO';
+    message = 'Finish the details to add this task to your library.';
+  }
 
   function toggle(id: string, field: keyof Flags, checked: boolean) {
     save({ ...progress, [id]: { ...empty(), ...progress[id], [field]: checked } });
@@ -206,6 +296,8 @@
     const done = items.filter(isComplete).length;
     return { name, total: items.length, done, percent: items.length ? Math.round(done / items.length * 100) : 0 };
   });
+  $: latestTasks = latestOpenTasks(tasks);
+  $: taskList = tasks.filter((task) => taskFilter === 'deleted' ? task.deleted : !task.deleted && (taskFilter === 'done' ? task.done : !task.done)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   $: managedItems = allLibraryItems(library, showDeleted).filter((item) =>
     (manageType === 'All' || entryTypeOf(item) === manageType) &&
     `${item.title} ${item.provider} ${item.category}`.toLowerCase().includes(manageQuery.trim().toLowerCase())
@@ -263,7 +355,7 @@
   }
 
   function exportBackup() {
-    const payload = { format: 'learning-atlas', version: 2, exportedAt: new Date().toISOString(), progress, library };
+    const payload = { format: 'learning-atlas', version: 3, exportedAt: new Date().toISOString(), progress, library, tasks, notes };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -279,13 +371,17 @@
     const file = input.files?.[0];
     if (!file) return;
     try {
-      if (file.size > 1_000_000) throw new Error('File is too large.');
+      if (file.size > 2_000_000) throw new Error('File is too large.');
       const data = JSON.parse(await file.text());
-      if (data?.format !== 'learning-atlas' || ![1, 2].includes(data.version)) throw new Error('This is not a supported Learning Atlas backup.');
-      const importedLibrary = data.version === 2 ? validateLibrary(data.library) : library;
+      if (data?.format !== 'learning-atlas' || ![1, 2, 3].includes(data.version)) throw new Error('This is not a supported Learning Atlas backup.');
+      const importedLibrary = data.version >= 2 ? validateLibrary(data.library) : library;
       const imported = validate(data.progress, allLibraryItems(importedLibrary, true));
-      if (!confirm(data.version === 2 ? 'Replace current progress and library edits with this backup?' : 'Replace current progress with this older backup?')) return;
-      progress = imported; library = importedLibrary; persist();
+      const importedTasks = data.version === 3 ? validateTasks(data.tasks) : tasks;
+      const knownIds = new Set(allLibraryItems(importedLibrary, true).map((item) => item.id));
+      const retainedNotes = Object.fromEntries(Object.entries(notes).filter(([id]) => knownIds.has(id)));
+      const importedNotes = data.version === 3 ? validateNotes(data.notes, allLibraryItems(importedLibrary, true)) : retainedNotes;
+      if (!confirm(data.version === 3 ? 'Replace current progress, library, tasks, and notes with this backup?' : data.version === 2 ? 'Replace current progress and library edits with this older backup? Tasks and matching notes will stay.' : 'Replace current progress with this older backup?')) return;
+      progress = imported; library = importedLibrary; tasks = importedTasks; notes = importedNotes; persist();
       message = 'Backup imported.';
     } catch (error) {
       message = error instanceof Error ? `Import failed: ${error.message}` : 'Import failed.';
@@ -311,6 +407,7 @@
     <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span>learning<span class="brand-light">atlas</span></span></div>
     <div class="side-section-label">YOUR JOURNEY</div>
     <button class="side-link" class:active={view === 'dashboard'} onclick={() => goTo('dashboard')} aria-current={view === 'dashboard' ? 'page' : undefined}><span aria-hidden="true">▦</span> Dashboard</button>
+    <button class="side-link" class:active={view === 'tasks'} onclick={() => goTo('tasks')} aria-current={view === 'tasks' ? 'page' : undefined}><span aria-hidden="true">☑</span> Tasks</button>
     <button class="side-link" class:active={view === 'manage'} onclick={() => goTo('manage')} aria-current={view === 'manage' ? 'page' : undefined}><span aria-hidden="true">▤</span> Manage library</button>
     <div class="side-note">A calm place to keep your learning moving.</div>
     <div class="side-divider"></div>
@@ -325,9 +422,9 @@
   </aside>
 
   <main id="main-content">
-    <header class="topbar"><span class="breadcrumb">Workspace <span aria-hidden="true">/</span> <strong>{view === 'dashboard' ? 'Dashboard' : 'Manage library'}</strong></span><span class="topbar-right">{user.email} <button class="signout" onclick={logOut}>Sign out</button></span></header>
+    <header class="topbar"><span class="breadcrumb">Workspace <span aria-hidden="true">/</span> <strong>{view === 'dashboard' ? 'Dashboard' : view === 'tasks' ? 'Tasks' : 'Manage library'}</strong></span><span class="topbar-right">{user.email} <button class="signout" onclick={logOut}>Sign out</button></span></header>
     <div class="content">
-      <nav class="mobile-nav" aria-label="Pages"><button class:chosen={view === 'dashboard'} onclick={() => goTo('dashboard')} aria-current={view === 'dashboard' ? 'page' : undefined}>Dashboard</button><button class:chosen={view === 'manage'} onclick={() => goTo('manage')} aria-current={view === 'manage' ? 'page' : undefined}>Manage library</button></nav>
+      <nav class="mobile-nav" aria-label="Pages"><button class:chosen={view === 'dashboard'} onclick={() => goTo('dashboard')} aria-current={view === 'dashboard' ? 'page' : undefined}>Dashboard</button><button class:chosen={view === 'tasks'} onclick={() => goTo('tasks')} aria-current={view === 'tasks' ? 'page' : undefined}>Tasks</button><button class:chosen={view === 'manage'} onclick={() => goTo('manage')} aria-current={view === 'manage' ? 'page' : undefined}>Manage library</button></nav>
       {#if view === 'dashboard'}
       <section class="hero" aria-labelledby="page-title">
         <div class="hero-copy"><span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> YOUR LEARNING SPACE</span><h1 id="page-title">Make progress<br /><em>visible.</em></h1><p>One place for your courses, certification goals, and the milestones that matter along the way.</p></div>
@@ -339,6 +436,8 @@
         <div class="stat-card"><div class="stat-kicker">IN MOTION</div><div class="stat-number">{started}<span class="stat-symbol">↗</span></div><div class="stat-sub">Resources and goals started</div></div>
         <div class="stat-card"><div class="stat-kicker">CREDENTIALS EARNED</div><div class="stat-number">{credentialsEarned}<span class="stat-symbol gold">✧</span></div><div class="stat-sub">Manually marked as awarded</div></div>
       </section>
+
+      <section class="task-preview" aria-labelledby="task-preview-heading"><div class="task-preview-heading"><div><span class="eyebrow dark">QUICK CAPTURE</span><h2 id="task-preview-heading">Your newest tasks<span class="heading-period">.</span></h2><p>Course links to revisit when you have time.</p></div><button class="secondary-button" onclick={() => goTo('tasks')}>View all tasks →</button></div>{#if latestTasks.length}<ol>{#each latestTasks as task}<li><span class="task-preview-title">{task.title}</span>{#if task.url}<a href={task.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${task.title} in a new tab`}>Open link ↗</a>{/if}</li>{/each}</ol>{:else}<p class="task-preview-empty">No open tasks yet. Save a course link in <button onclick={() => goTo('tasks')}>Tasks</button> to see it here.</p>{/if}</section>
 
       <section class="catalog-section" aria-labelledby="catalog-heading">
         <div class="section-heading"><div><span class="eyebrow dark">YOUR LIBRARY</span><h2 id="catalog-heading">Explore your paths<span class="heading-period">.</span></h2><p>Provider resources and your own entries, organized for your journey.</p></div><div class="backup-actions"><button class="secondary-button" onclick={() => goTo('manage')}>Manage library</button><button class="secondary-button" onclick={exportBackup}>↓ Export backup</button><button class="secondary-button" onclick={() => importInput.click()}>↑ Import backup</button><input bind:this={importInput} type="file" accept="application/json,.json" aria-label="Choose a JSON backup" onchange={importBackup} hidden /></div></div>
@@ -365,6 +464,7 @@
                   <label><input type="checkbox" checked={isChecked(item.id, 'linkedin')} onchange={(e) => toggle(item.id, 'linkedin', e.currentTarget.checked)} /><span>Added to LinkedIn</span></label>
                 {/if}
               </div>
+              <button class="notes-button" onclick={() => openNotes(item)}>Notes{notes[item.id] ? ' • Saved' : ''}</button>
               {#if isComplete(item)}<div class="complete-label">✓ {item.kind === 'resource' ? 'Training complete' : 'Marked as awarded'}</div>{/if}
             </article>
           {:else}
@@ -372,7 +472,7 @@
           {/each}
         </div>
       </section>
-      {:else}
+      {:else if view === 'manage'}
       <section class="manage-page" aria-labelledby="manage-heading">
         <div class="manage-heading"><div><span class="eyebrow dark">YOUR LIBRARY</span><h1 id="manage-heading">Manage your learning.</h1><p>Add resources, career paths, courses, and certificates. Changes sync to your account.</p></div><button class="primary-button" onclick={() => startNew()}>+ Add entry</button></div>
         {#if message}<p class="notice" role="status">{message}</p>{/if}
@@ -406,9 +506,19 @@
         </div>
         <p class="manage-help">Deleted entries can be restored using “Show deleted.” Progress flags are preserved if you restore an entry. Edit the type to decide whether it tracks training completion or a credential award.</p>
       </section>
+      {:else}
+      <section class="tasks-page" aria-labelledby="tasks-heading">
+        <div class="manage-heading"><div><span class="eyebrow dark">SAVE IT FOR LATER</span><h1 id="tasks-heading">Tasks.</h1><p>Capture a course link now. Add full details to your library when you have time.</p></div></div>
+        {#if message}<p class="notice" role="status">{message}</p>{/if}
+        {#if !storageAvailable}<p class="notice warning" role="alert">Local saving is unavailable in this browser. Export a JSON backup from Dashboard.</p>{/if}
+        <form class="task-form" onsubmit={saveTask}><div class="form-heading"><h2>{taskEditingId ? 'Edit task' : 'Quick add'}</h2>{#if taskEditingId}<button type="button" class="text-button" onclick={resetTaskForm}>Cancel edit</button>{/if}</div><div class="task-form-grid"><label>Course or task title<input bind:value={taskTitle} maxlength="180" placeholder="Optional if you paste a link" /></label><label>Course link<input type="url" bind:value={taskUrl} maxlength="500" placeholder="https://example.com/course" /></label><label class="wide">Details for later<textarea bind:value={taskDetails} maxlength="1000" rows="2" placeholder="Why did you save this?"></textarea></label></div>{#if taskError}<p class="notice warning" role="alert">{taskError}</p>{/if}<div class="form-actions"><button type="submit" class="primary-button">{taskEditingId ? 'Save changes' : 'Add task'}</button><span class="task-hint">A title or link is enough to save.</span></div></form>
+        <div class="task-filter" aria-label="Filter tasks"><button class:chosen={taskFilter === 'open'} onclick={() => taskFilter = 'open'} aria-pressed={taskFilter === 'open'}>To do ({tasks.filter((task) => !task.done && !task.deleted).length})</button><button class:chosen={taskFilter === 'done'} onclick={() => taskFilter = 'done'} aria-pressed={taskFilter === 'done'}>Done ({tasks.filter((task) => task.done && !task.deleted).length})</button><button class:chosen={taskFilter === 'deleted'} onclick={() => taskFilter = 'deleted'} aria-pressed={taskFilter === 'deleted'}>Deleted</button></div>
+        <div class="task-list">{#each taskList as task (task.id)}<article class="task-row"><div class="task-main">{#if !task.deleted}<label class="task-check"><input type="checkbox" checked={task.done} onchange={(event) => updateTask(task, { done: event.currentTarget.checked })} aria-label={`Mark ${task.title} ${task.done ? 'to do' : 'done'}`} /></label>{/if}<div><h2>{task.title}</h2><p>{task.details || 'Saved for later'} · Added {new Date(task.createdAt).toLocaleDateString()}</p>{#if task.url}<a href={task.url} target="_blank" rel="noopener noreferrer">{task.url} ↗</a>{/if}</div></div><div class="task-actions">{#if task.deleted}<button class="secondary-button" onclick={() => updateTask(task, { deleted: false })}>Restore</button>{:else}<button class="secondary-button" onclick={() => promoteTask(task)}>Add to library</button><button class="secondary-button" onclick={() => editTask(task)}>Edit</button><button class="danger-button" onclick={() => deleteTask(task)}>Delete</button>{/if}</div></article>{:else}<div class="empty-state"><h3>{taskFilter === 'open' ? 'Nothing to do yet' : taskFilter === 'done' ? 'No completed tasks' : 'No deleted tasks'}</h3><p>Use quick add above to capture a course when you find it.</p></div>{/each}</div>
+      </section>
       {/if}
       <footer><span>Learning Atlas · Progress saved to your Firebase account, with a browser cache</span><span>Catalog updated November 2026 · Verify course availability with each provider</span></footer>
     </div>
   </main>
 </div>
+{#if notesItem && NotesComponent}<svelte:component this={NotesComponent} title={notesItem.title} initialValue={notes[notesItem.id] ?? ''} onSave={saveNote} onClose={() => notesItem = null} />{/if}
 {/if}

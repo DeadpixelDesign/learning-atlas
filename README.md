@@ -18,6 +18,12 @@ Open **Manage library** from the dashboard or sidebar. Add, edit, or delete Reso
 
 Edits to included entries are personal to your account; **Reset** returns an edited entry to its included version. **Delete** hides an entry from the dashboard and completion totals; turn on **Show deleted** to restore it later. Its progress flags remain available when restored. New and edited entries sync through the same Firestore progress document, so no additional database or paid service is required.
 
+## Tasks and notes
+
+Open **Tasks** to quickly save a course title, link, or both. Add optional details, mark tasks done, edit or delete them, or use **Add to library** when ready to fill out a full entry. Deleted tasks can be restored from the **Deleted** filter. The dashboard shows the five newest open tasks with a link to the full Tasks page.
+
+Every dashboard entry has a **Notes** button. Notes use a visual editor with a Markdown source mode; the stored value is Markdown text. **Import .md** replaces the open draft with a local Markdown file, and **Save notes** syncs it to your account. The editor is loaded only when you open Notes. For safety and database size, a single note is limited to 100,000 characters and all notes together to 300,000 characters. The editor is built with [Tiptap](https://tiptap.dev/docs/editor/markdown), which currently marks its Markdown extension as beta.
+
 ## Run locally
 
 Requires Node.js 22 or newer. The supplied Firebase Web app configuration is already in `src/firebase.ts`.
@@ -40,7 +46,7 @@ The deployable site is generated in `dist/`. Vite uses a relative base path, so 
 
 1. The dashboard is connected to the `cert-tracker-dashboard` Firebase Web app. Its public Web app configuration is in `src/firebase.ts`. **Do not put a password in GitHub or source files.**
 2. **Email/Password** authentication is enabled and the requested user account has been created in Firebase. Firebase handles password storage and checking.
-3. The default **Cloud Firestore** database is provisioned in `nam5 (United States)`. Its published rules match `firestore.rules`: only the requested account can read and write its own progress and library document. All other paths remain denied.
+3. The default **Cloud Firestore** database is provisioned in `nam5 (United States)`. Its published rules match `firestore.rules`: only the requested account can read and write its own progress, library, tasks, and notes document. All other paths remain denied.
 4. Sign in and confirm that a checkbox persists after refresh. Sign in on a second device to confirm sync. The last successful cloud save is authoritative when signing in.
 
 The app does not create accounts or store passwords itself. Firebase handles password checking. The static JavaScript and catalog remain publicly downloadable on GitHub Pages; the rules protect the personal progress data, not the website code.
@@ -53,9 +59,9 @@ If your default branch has another name, change `branches: [main]` in `.github/w
 
 ## Your data and backups
 
-Progress and personal library edits are saved to Firestore under the signed-in Firebase user ID and cached in this browser's `localStorage` under `learning-atlas-progress-v2-USER_ID` and `learning-atlas-library-v1-USER_ID`. They sync on sign-in and after changes when online. The browser cache is a fallback if cloud loading fails; it is not encrypted and is removed when you sign out after a successful cloud save. GitHub Pages does not store your personal data.
+Progress, personal library edits, tasks, and Markdown notes are saved to Firestore under the signed-in Firebase user ID and cached in this browser's `localStorage` under account-specific keys (`learning-atlas-progress-v2`, `learning-atlas-library-v1`, `learning-atlas-tasks-v1`, and `learning-atlas-notes-v1`). They sync on sign-in and after changes when online. The browser cache is a fallback if cloud loading fails; it is not encrypted and is removed when you sign out after a successful cloud save. GitHub Pages does not store your personal data.
 
-Use **Export backup** to download a JSON file containing both progress and library edits (version 2). Use **Import backup** to restore it; import validates the file and asks before replacing current data. Older version 1 backups remain importable and replace progress only. Keep the backup somewhere safe. Imports sync to Firestore after confirmation.
+Use **Export backup** to download a JSON file containing progress, library edits, tasks, and notes (version 3). Use **Import backup** to restore it; import validates the file and asks before replacing current data. Older version 1 and 2 backups remain importable. Version 1 replaces progress only; version 2 replaces progress and library edits while preserving tasks and notes that still match an entry. Keep the backup somewhere safe. Imports sync to Firestore after confirmation.
 
 ## Update the catalog
 
