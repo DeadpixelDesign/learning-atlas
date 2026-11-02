@@ -16,6 +16,8 @@ A responsive course and certification tracker built with Svelte and Vite. GitHub
 
 Open **Manage library** from the dashboard or sidebar. Add, edit, or delete Resources, Career Paths, Courses, and Certificates. Choose a category, including **AEO / SEO / SMO**. The included [Ahrefs Answer Engine Optimization course](https://ahrefs.com/academy/aeo-course) appears there as a **Course** learning resource; its training checkbox is separate from Ahrefs' optional exam.
 
+The **Categories** area on Manage library lets you add topics such as Photography, Typography, Graphic Design, or Illustration, and rename any category. The new names appear in dashboard filters, progress summaries, notes, and entry forms. Category IDs remain stable, so renaming does not change an entry's progress or notes. You can delete a category you added after moving or deleting its entries; included categories can be renamed but remain available for catalog entries.
+
 Edits to included entries are personal to your account; **Reset** returns an edited entry to its included version. **Delete** hides an entry from the dashboard and completion totals; turn on **Show deleted** to restore it later. Its progress flags remain available when restored. New and edited entries sync through the same Firestore progress document, so no additional database or paid service is required.
 
 ## Tasks and notes
@@ -61,7 +63,7 @@ If your default branch has another name, change `branches: [main]` in `.github/w
 
 ## Your data and backups
 
-Progress, personal library edits, tasks, and Markdown notes are saved to Firestore under the signed-in Firebase user ID and cached in this browser's `localStorage` under account-specific keys (`learning-atlas-progress-v2`, `learning-atlas-library-v1`, `learning-atlas-tasks-v1`, and `learning-atlas-notes-v1`). They sync on sign-in and after changes when online. The browser cache is a fallback if cloud loading fails; it is not encrypted and is removed when you sign out after a successful cloud save. GitHub Pages does not store your personal data.
+Progress, personal library edits and categories, tasks, and Markdown notes are saved to Firestore under the signed-in Firebase user ID and cached in this browser's `localStorage` under account-specific keys (`learning-atlas-progress-v2`, `learning-atlas-library-v1`, `learning-atlas-tasks-v1`, and `learning-atlas-notes-v1`). They sync on sign-in and after changes when online. The browser cache is a fallback if cloud loading fails; it is not encrypted and is removed when you sign out after a successful cloud save. GitHub Pages does not store your personal data.
 
 Use **Export backup** to download a JSON file containing progress, library edits, tasks, and notes (version 3). Use **Import backup** to restore it; import validates the file and asks before replacing current data. Older version 1 and 2 backups remain importable. Version 1 replaces progress only; version 2 replaces progress and library edits while preserving tasks and notes that still match an entry. Keep the backup somewhere safe. Imports sync to Firestore after confirmation.
 

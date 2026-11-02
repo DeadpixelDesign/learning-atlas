@@ -1,10 +1,16 @@
 import { catalog, categoryOptions, type EntryType, type Item } from './catalog';
 
-export type Library = { customItems: Item[]; overrides: Record<string, Item>; hiddenIds: string[] };
-export const emptyLibrary = (): Library => ({ customItems: [], overrides: {}, hiddenIds: [] });
+export type CategoryDefinition = { id: string; name: string };
+export type Library = { customItems: Item[]; overrides: Record<string, Item>; hiddenIds: string[]; categories: CategoryDefinition[] };
+export const emptyLibrary = (): Library => ({ customItems: [], overrides: {}, hiddenIds: [], categories: categoryOptions.map((id) => ({ id, name: id })) });
 
 const entryTypes: EntryType[] = ['Resource', 'Career Path', 'Course', 'Certificate'];
 const builtInIds = new Set(catalog.map((item) => item.id));
+const builtInCategories = new Set(categoryOptions);
+
+export function categoryName(library: Library, id: string): string {
+  return library.categories.find((category) => category.id === id)?.name ?? id;
+}
 
 export function entryTypeOf(item: Item): EntryType {
   if (item.entryType) return item.entryType;
@@ -23,7 +29,7 @@ function boundedText(value: unknown, name: string, max: number): string {
   return value.trim();
 }
 
-export function validateItem(raw: unknown, expectedId?: string): Item {
+export function validateItem(raw: unknown, allowedCategories: string[] = categoryOptions, expectedId?: string): Item {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid library entry.');
   const value = raw as Record<string, unknown>;
   const id = boundedText(value.id, 'Entry ID', 80);
@@ -31,7 +37,7 @@ export function validateItem(raw: unknown, expectedId?: string): Item {
   const entryType = value.entryType;
   if (!entryTypes.includes(entryType as EntryType)) throw new Error('Choose a valid entry type.');
   const category = value.category;
-  if (!categoryOptions.includes(category as Item['category'])) throw new Error('Choose a valid category.');
+  if (typeof category !== 'string' || !allowedCategories.includes(category)) throw new Error('Choose a valid category.');
   const url = boundedText(value.url, 'URL', 500);
   try {
     const parsed = new URL(url);
@@ -60,7 +66,26 @@ export function validateLibrary(raw: unknown): Library {
   if (!Array.isArray(value.customItems) || value.customItems.length > 300) throw new Error('Invalid custom entries.');
   if (!value.overrides || typeof value.overrides !== 'object' || Array.isArray(value.overrides)) throw new Error('Invalid edited entries.');
   if (!Array.isArray(value.hiddenIds)) throw new Error('Invalid deleted entries.');
-  const customItems = value.customItems.map((item) => validateItem(item));
+  const categories = value.categories === undefined ? emptyLibrary().categories : value.categories;
+  if (!Array.isArray(categories) || categories.length > categoryOptions.length + 50) throw new Error('Invalid categories.');
+  const categoryIds = new Set<string>();
+  const categoryNames = new Set<string>();
+  const validatedCategories: CategoryDefinition[] = [];
+  for (const rawCategory of categories) {
+    if (!rawCategory || typeof rawCategory !== 'object' || Array.isArray(rawCategory)) throw new Error('Invalid category.');
+    const entry = rawCategory as Record<string, unknown>;
+    const id = boundedText(entry.id, 'Category ID', 80);
+    const name = boundedText(entry.name, 'Category name', 60);
+    if (name.toLocaleLowerCase() === 'all') throw new Error('“All” is reserved for the dashboard filter.');
+    if (!builtInCategories.has(id) && !/^category-[a-f0-9-]{36}$/.test(id)) throw new Error('Invalid category ID.');
+    if (categoryIds.has(id) || categoryNames.has(name.toLocaleLowerCase())) throw new Error('Duplicate category.');
+    categoryIds.add(id);
+    categoryNames.add(name.toLocaleLowerCase());
+    validatedCategories.push({ id, name });
+  }
+  if (categoryOptions.some((id) => !categoryIds.has(id))) throw new Error('An included category is missing.');
+  const allowedCategories = validatedCategories.map((entry) => entry.id);
+  const customItems = value.customItems.map((item) => validateItem(item, allowedCategories));
   const customIds = new Set<string>();
   for (const item of customItems) {
     if (!/^custom-[a-f0-9-]{36}$/.test(item.id) || builtInIds.has(item.id) || customIds.has(item.id)) throw new Error('Invalid or duplicate custom entry ID.');
@@ -69,12 +94,12 @@ export function validateLibrary(raw: unknown): Library {
   const overrides: Record<string, Item> = {};
   for (const [id, item] of Object.entries(value.overrides)) {
     if (!builtInIds.has(id)) throw new Error('An edited entry does not exist in the catalog.');
-    overrides[id] = validateItem(item, id);
+    overrides[id] = validateItem(item, allowedCategories, id);
   }
   const hiddenIds: string[] = [];
   for (const id of value.hiddenIds) {
     if (typeof id !== 'string' || (!builtInIds.has(id) && !customIds.has(id)) || hiddenIds.includes(id)) throw new Error('Invalid deleted entry ID.');
     hiddenIds.push(id);
   }
-  return { customItems, overrides, hiddenIds };
+  return { customItems, overrides, hiddenIds, categories: validatedCategories };
 }

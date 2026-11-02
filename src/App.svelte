@@ -3,7 +3,7 @@
   import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
   import { doc, getDoc, setDoc } from 'firebase/firestore';
   import { catalog, categoryOptions, type Category, type EntryType, type Item } from './catalog';
-  import { allLibraryItems, emptyLibrary, entryTypeOf, validateItem, validateLibrary, type Library } from './library';
+  import { allLibraryItems, categoryName, emptyLibrary, entryTypeOf, validateItem, validateLibrary, type Library } from './library';
   import { validateNotes, type Notes } from './notes';
   import { latestOpenTasks, validateTasks, type Task } from './tasks';
   import { auth, configured, db } from './firebase';
@@ -17,7 +17,6 @@
   const ALLOWED_EMAIL = 'pmatos@deadpixel.design';
   const empty = (): Flags => ({ started: false, training: false, exam: false, earned: false, badge: false, linkedin: false });
   const fields: (keyof Flags)[] = ['started', 'training', 'exam', 'earned', 'badge', 'linkedin'];
-  const categories: ('All' | Category)[] = ['All', ...categoryOptions];
 
   let progress: Progress = {};
   let library: Library = emptyLibrary();
@@ -37,6 +36,10 @@
   let taskError = '';
   let taskFilter: 'open' | 'done' | 'deleted' = 'open';
   let manageQuery = '';
+  let newCategoryName = '';
+  let editingCategoryId: string | null = null;
+  let editingCategoryName = '';
+  let categoryError = '';
   let manageType: 'All' | EntryType = 'All';
   let showDeleted = false;
   let editingId: string | null = null;
@@ -299,6 +302,7 @@
     return 'Not started';
   }
   $: allItems = allLibraryItems(library);
+  $: categories = ['All', ...library.categories.map((entry) => entry.id)];
   $: notedItems = allLibraryItems(library, true).filter((item) => Boolean(notes[item.id])).sort((a, b) => a.title.localeCompare(b.title));
   $: matchingNotedItems = notedItems.filter((item) => `${item.title} ${item.provider} ${notes[item.id]}`.toLowerCase().includes(noteQuery.trim().toLowerCase()));
   $: selectedNote = notedItems.find((item) => item.id === selectedNoteId) ?? notedItems[0] ?? null;
@@ -312,16 +316,16 @@
   $: started = allItems.filter((item) => isChecked(item.id, 'started')).length;
   $: credentialsEarned = allItems.filter((item) => item.kind === 'credential' && isChecked(item.id, 'earned')).length;
   $: percent = allItems.length ? Math.round(completed / allItems.length * 100) : 0;
-  $: categoryStats = categories.slice(1).map((name) => {
-    const items = allItems.filter((item) => item.category === name);
+  $: categoryStats = library.categories.map((entry) => {
+    const items = allItems.filter((item) => item.category === entry.id);
     const done = items.filter(isComplete).length;
-    return { name, total: items.length, done, percent: items.length ? Math.round(done / items.length * 100) : 0 };
+    return { name: entry.name, total: items.length, done, percent: items.length ? Math.round(done / items.length * 100) : 0 };
   });
   $: latestTasks = latestOpenTasks(tasks);
   $: taskList = tasks.filter((task) => taskFilter === 'deleted' ? task.deleted : !task.deleted && (taskFilter === 'done' ? task.done : !task.done)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   $: managedItems = allLibraryItems(library, showDeleted).filter((item) =>
     (manageType === 'All' || entryTypeOf(item) === manageType) &&
-    `${item.title} ${item.provider} ${item.category}`.toLowerCase().includes(manageQuery.trim().toLowerCase())
+    `${item.title} ${item.provider} ${categoryName(library, item.category)}`.toLowerCase().includes(manageQuery.trim().toLowerCase())
   );
 
   function startNew(type: EntryType = 'Resource') {
@@ -344,7 +348,7 @@
       const id = editingId ?? `custom-${crypto.randomUUID()}`;
       const item = validateItem({ id, title: formTitle, provider: formProvider, url: formUrl,
         category: formCategory, summary: formSummary, priority: formPriority || undefined,
-        entryType: formType, badge: formBadge });
+        entryType: formType, badge: formBadge }, library.categories.map((entry) => entry.id));
       const next: Library = editingId && catalog.some((entry) => entry.id === editingId)
         ? { ...library, overrides: { ...library.overrides, [id]: item } }
         : { ...library, customItems: editingId
@@ -373,6 +377,48 @@
     delete overrides[item.id];
     saveLibrary({ ...library, overrides });
     message = 'Included entry reset.';
+  }
+
+  function addCategory(event: SubmitEvent) {
+    event.preventDefault(); categoryError = '';
+    try {
+      const name = newCategoryName.trim();
+      saveLibrary({ ...library, categories: [...library.categories, { id: `category-${crypto.randomUUID()}`, name }] });
+      newCategoryName = ''; message = `Category “${name}” added.`;
+    } catch (error) { categoryError = error instanceof Error ? error.message : 'Could not add category.'; }
+  }
+
+  function startCategoryRename(id: string) {
+    editingCategoryId = id;
+    editingCategoryName = categoryName(library, id);
+    categoryError = '';
+  }
+
+  function renameCategory(event: SubmitEvent) {
+    event.preventDefault();
+    if (!editingCategoryId) return;
+    categoryError = '';
+    try {
+      const name = editingCategoryName.trim();
+      saveLibrary({ ...library, categories: library.categories.map((entry) => entry.id === editingCategoryId ? { ...entry, name } : entry) });
+      editingCategoryId = null; editingCategoryName = ''; message = `Category renamed to “${name}”.`;
+    } catch (error) { categoryError = error instanceof Error ? error.message : 'Could not rename category.'; }
+  }
+
+  function deleteCategory(id: string) {
+    if (categoryOptions.includes(id)) return;
+    if (allLibraryItems(library, true).some((item) => item.category === id)) {
+      categoryError = 'Move or delete the entries in this category before deleting it.';
+      return;
+    }
+    if (!confirm(`Delete the empty category “${categoryName(library, id)}”?`)) return;
+    try {
+      saveLibrary({ ...library, categories: library.categories.filter((entry) => entry.id !== id) });
+      if (category === id) category = 'All';
+      if (formCategory === id) formCategory = 'AEO / SEO / SMO';
+      if (editingCategoryId === id) editingCategoryId = null;
+      categoryError = ''; message = 'Category deleted.';
+    } catch (error) { categoryError = error instanceof Error ? error.message : 'Could not delete category.'; }
   }
 
   function exportBackup() {
@@ -465,12 +511,12 @@
         <div class="section-heading"><div><span class="eyebrow dark">YOUR LIBRARY</span><h2 id="catalog-heading">Explore your paths<span class="heading-period">.</span></h2><p>Provider resources and your own entries, organized for your journey.</p></div><div class="backup-actions"><button class="secondary-button" onclick={() => goTo('manage')}>Manage library</button><button class="secondary-button" onclick={exportBackup}>↓ Export backup</button><button class="secondary-button" onclick={() => importInput.click()}>↑ Import backup</button><input bind:this={importInput} type="file" accept="application/json,.json" aria-label="Choose a JSON backup" onchange={importBackup} hidden /></div></div>
         {#if message}<p class="notice" role="status">{message}</p>{/if}
         {#if !storageAvailable}<p class="notice warning" role="alert">Local saving is unavailable in this browser. Keep a JSON backup.</p>{/if}
-        <div class="toolbar"><div class="category-tabs" aria-label="Filter by category">{#each categories as option}<button class:chosen={category === option} onclick={() => category = option} aria-pressed={category === option}>{option}</button>{/each}</div><div class="toolbar-controls"><label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Search resources</span><input type="search" placeholder="Search resources..." bind:value={query} /></label><label class="type-select"><span class="sr-only">Resource type</span><select bind:value={kind}><option value="all">All types</option><option value="resource">Learning resources</option><option value="credential">Credential goals</option></select></label><label class="type-select"><span class="sr-only">Priority</span><select bind:value={priority}><option value="all">Any priority</option><option value="P1">P1 Essential</option><option value="P2">P2 Recommended</option><option value="P3">P3 Optional</option></select></label></div></div>
+        <div class="toolbar"><div class="category-tabs" aria-label="Filter by category">{#each categories as option}<button class:chosen={category === option} onclick={() => category = option} aria-pressed={category === option}>{option === 'All' ? 'All' : categoryName(library, option)}</button>{/each}</div><div class="toolbar-controls"><label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Search resources</span><input type="search" placeholder="Search resources..." bind:value={query} /></label><label class="type-select"><span class="sr-only">Resource type</span><select bind:value={kind}><option value="all">All types</option><option value="resource">Learning resources</option><option value="credential">Credential goals</option></select></label><label class="type-select"><span class="sr-only">Priority</span><select bind:value={priority}><option value="all">Any priority</option><option value="P1">P1 Essential</option><option value="P2">P2 Recommended</option><option value="P3">P3 Optional</option></select></label></div></div>
         <div class="results-line"><span>Showing <strong>{visible.length}</strong> of {allItems.length} paths · P1 essential, P2 recommended, P3 optional</span><span><i class="legend-dot resource"></i> Learning resource <i class="legend-dot credential"></i> Credential goal</span></div>
         <div class="cards">
           {#each visible as item (item.id)}
             <article class="course-card" class:complete={isComplete(item)}>
-              <div class="card-top"><span class:credential={item.kind === 'credential'} class="kind-pill">{item.entryType?.toUpperCase() ?? item.resourceType ?? (item.kind === 'resource' ? 'LEARNING RESOURCE' : 'CREDENTIAL GOAL')}{item.priority ? ` · ${item.priority}` : ''}</span><span class="category-name">{item.category}</span></div>
+              <div class="card-top"><span class:credential={item.kind === 'credential'} class="kind-pill">{item.entryType?.toUpperCase() ?? item.resourceType ?? (item.kind === 'resource' ? 'LEARNING RESOURCE' : 'CREDENTIAL GOAL')}{item.priority ? ` · ${item.priority}` : ''}</span><span class="category-name">{categoryName(library, item.category)}</span></div>
               <div class="provider">{item.provider}</div><h3>{item.title}</h3><p class="summary">{item.summary}</p>
               <a class="course-link" href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${item.title} in a new tab`}>Open resource <span aria-hidden="true">↗</span></a>
               <div class="card-divider"></div>
@@ -499,12 +545,18 @@
         <div class="manage-heading"><div><span class="eyebrow dark">YOUR LIBRARY</span><h1 id="manage-heading">Manage your learning.</h1><p>Add resources, career paths, courses, and certificates. Changes sync to your account.</p></div><button class="primary-button" onclick={() => startNew()}>+ Add entry</button></div>
         {#if message}<p class="notice" role="status">{message}</p>{/if}
         {#if !storageAvailable}<p class="notice warning" role="alert">Local saving is unavailable in this browser. Export a JSON backup before closing the page.</p>{/if}
+        <section class="category-manager" aria-labelledby="category-manager-heading">
+          <div class="category-manager-heading"><div><h2 id="category-manager-heading">Categories</h2><p>Add a topic for future courses or rename an existing one. Entries keep their category when its name changes. Empty categories you added can be deleted.</p></div></div>
+          <form class="category-add" onsubmit={addCategory}><label for="new-category">New category</label><div><input id="new-category" bind:value={newCategoryName} maxlength="60" required placeholder="e.g. Photography" /><button class="primary-button" type="submit">Add category</button></div></form>
+          {#if categoryError}<p class="notice warning" role="alert">{categoryError}</p>{/if}
+          <div class="category-manager-list">{#each library.categories as entry (entry.id)}<div class="category-manager-row">{#if editingCategoryId === entry.id}<form class="category-rename" onsubmit={renameCategory}><label for={`category-name-${entry.id}`}>Rename {entry.name}</label><input id={`category-name-${entry.id}`} bind:value={editingCategoryName} maxlength="60" required /><button class="primary-button" type="submit">Save</button><button class="secondary-button" type="button" onclick={() => editingCategoryId = null}>Cancel</button></form>{:else}<div class="category-manager-label"><strong>{entry.name}</strong><span>{allLibraryItems(library, true).filter((item) => item.category === entry.id).length} entries</span></div><div class="category-manager-actions"><button class="secondary-button" onclick={() => startCategoryRename(entry.id)} aria-label={`Rename ${entry.name}`}>Rename</button>{#if !categoryOptions.includes(entry.id)}<button class="danger-button" onclick={() => deleteCategory(entry.id)} disabled={allLibraryItems(library, true).some((item) => item.category === entry.id)} title={allLibraryItems(library, true).some((item) => item.category === entry.id) ? 'Move or delete its entries first' : 'Delete empty category'}>Delete</button>{/if}</div>{/if}</div>{/each}</div>
+        </section>
         {#if formOpen}
           <form class="entry-form" onsubmit={saveEntry}>
             <div class="form-heading"><h2>{editingId ? 'Edit entry' : 'Add entry'}</h2><button type="button" class="text-button" onclick={() => formOpen = false}>Close</button></div>
             <div class="form-grid">
               <label>Type<select bind:value={formType}><option>Resource</option><option>Career Path</option><option>Course</option><option>Certificate</option></select></label>
-              <label>Category<select bind:value={formCategory}>{#each categoryOptions as option}<option value={option}>{option}</option>{/each}</select></label>
+              <label>Category<select bind:value={formCategory}>{#each library.categories as option}<option value={option.id}>{option.name}</option>{/each}</select></label>
               <label>Title<input bind:value={formTitle} maxlength="160" required placeholder="e.g. AEO fundamentals" /></label>
               <label>Provider<input bind:value={formProvider} maxlength="100" required placeholder="e.g. Ahrefs Academy" /></label>
               <label class="wide">Link<input type="url" bind:value={formUrl} maxlength="500" required placeholder="https://example.com/course" /></label>
@@ -521,7 +573,7 @@
         <div class="manage-list">
           {#each managedItems as item (item.id)}
             <article class="manage-row" class:deleted={library.hiddenIds.includes(item.id)}>
-              <div><div class="manage-row-meta"><span class:credential={item.kind === 'credential'} class="kind-pill">{entryTypeOf(item).toUpperCase()}</span><span>{item.category}</span><span>{catalog.some((entry) => entry.id === item.id) ? 'Included' : 'Yours'}</span>{#if library.overrides[item.id]}<span>Edited</span>{/if}{#if library.hiddenIds.includes(item.id)}<span>Deleted</span>{/if}</div><h2>{item.title}</h2><p>{item.provider} · {item.summary}</p></div>
+              <div><div class="manage-row-meta"><span class:credential={item.kind === 'credential'} class="kind-pill">{entryTypeOf(item).toUpperCase()}</span><span>{categoryName(library, item.category)}</span><span>{catalog.some((entry) => entry.id === item.id) ? 'Included' : 'Yours'}</span>{#if library.overrides[item.id]}<span>Edited</span>{/if}{#if library.hiddenIds.includes(item.id)}<span>Deleted</span>{/if}</div><h2>{item.title}</h2><p>{item.provider} · {item.summary}</p></div>
               <div class="manage-actions">{#if library.hiddenIds.includes(item.id)}<button class="secondary-button" onclick={() => restoreEntry(item)}>Restore</button>{:else}<button class="secondary-button" onclick={() => startEdit(item)}>Edit</button>{#if library.overrides[item.id]}<button class="secondary-button" onclick={() => resetEntry(item)}>Reset</button>{/if}<button class="danger-button" onclick={() => deleteEntry(item)}>Delete</button>{/if}</div>
             </article>
           {:else}<div class="empty-state"><h3>No entries found</h3><p>Try a different search or add an entry.</p></div>{/each}
@@ -546,7 +598,7 @@
             <div class="notes-index"><label class="notes-search">Search notes<input type="search" bind:value={noteQuery} placeholder="Search titles or note text" /></label><div class="notes-index-list">{#each matchingNotedItems as item (item.id)}<button class:selected={selectedNote?.id === item.id} onclick={() => selectedNoteId = item.id} aria-current={selectedNote?.id === item.id ? 'true' : undefined}><strong>{item.title}</strong><span>{item.provider}</span></button>{:else}<p class="notes-index-empty">No notes match your search.</p>{/each}</div></div>
             {#if selectedNote}
               <article class="note-detail" aria-labelledby="selected-note-title">
-                <div class="note-course"><div class="note-course-meta"><span class="kind-pill" class:credential={selectedNote.kind === 'credential'}>{entryTypeOf(selectedNote)}</span><span>{selectedNote.provider}</span><span>{selectedNote.category}</span></div><h2 id="selected-note-title">{selectedNote.title}</h2><p>{selectedNote.summary}</p><div class="note-course-actions"><span class="note-status" class:complete={noteStatus(selectedNote) === 'Complete'} class:started={noteStatus(selectedNote) === 'Started'} aria-label={`Progress status: ${noteStatus(selectedNote)}`}>Status: {noteStatus(selectedNote)}</span><a href={selectedNote.url} target="_blank" rel="noopener noreferrer">Open course ↗</a>{#if library.hiddenIds.includes(selectedNote.id)}<span class="note-hidden">Deleted from library</span>{/if}</div></div>
+                <div class="note-course"><div class="note-course-meta"><span class="kind-pill" class:credential={selectedNote.kind === 'credential'}>{entryTypeOf(selectedNote)}</span><span>{selectedNote.provider}</span><span>{categoryName(library, selectedNote.category)}</span></div><h2 id="selected-note-title">{selectedNote.title}</h2><p>{selectedNote.summary}</p><div class="note-course-actions"><span class="note-status" class:complete={noteStatus(selectedNote) === 'Complete'} class:started={noteStatus(selectedNote) === 'Started'} aria-label={`Progress status: ${noteStatus(selectedNote)}`}>Status: {noteStatus(selectedNote)}</span><a href={selectedNote.url} target="_blank" rel="noopener noreferrer">Open course ↗</a>{#if library.hiddenIds.includes(selectedNote.id)}<span class="note-hidden">Deleted from library</span>{/if}</div></div>
                 <div class="note-body-heading"><h3>My note</h3><button class="primary-button" onclick={() => openNotes(selectedNote)}>Edit note</button></div>
                 {#if NoteContentComponent}<svelte:component this={NoteContentComponent} markdown={notes[selectedNote.id]} />{:else}<p class="notes-loading" role="status">Loading note…</p>{/if}
               </article>

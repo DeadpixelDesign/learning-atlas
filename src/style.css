@@ -236,3 +236,24 @@
 .notes-loading { padding: 12px 26px 26px; color: var(--muted); font-size: 13px; }
 @media (max-width: 800px) { .mobile-nav { flex-wrap: wrap; } .notes-collection { grid-template-columns: 1fr; } .notes-index-list { display: flex; overflow-x: auto; max-height: none; } .notes-index-list button { flex: 0 0 190px; } }
 @media (max-width: 600px) { .note-course { padding: 20px; } .note-body-heading { padding: 20px 20px 0; } .note-content { padding: 12px 20px 20px; } .notes-count { align-self: flex-start; } }
+
+.category-manager { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 23px 24px; margin: 0 0 25px; box-shadow: 0 5px 20px #1010100d; }
+.category-manager-heading h2 { color: var(--ink); font: 800 22px Manrope, sans-serif; margin: 0 0 5px; }
+.category-manager-heading p { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+.category-add { margin: 20px 0 16px; }
+.category-add label, .category-rename label { display: block; color: #31393d; font-size: 12px; font-weight: 800; margin-bottom: 7px; }
+.category-add > div { display: flex; gap: 9px; }
+.category-add input, .category-rename input { min-width: 0; flex: 1; border: 1px solid #aebbc1; border-radius: 8px; padding: 10px 12px; font: 500 13px 'DM Sans', sans-serif; }
+.category-manager-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.category-manager-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; }
+.category-manager-label { display: grid; gap: 3px; min-width: 0; }
+.category-manager-label strong { overflow-wrap: anywhere; font-size: 12px; line-height: 1.35; }
+.category-manager-label span { color: var(--muted); font-size: 11px; }
+.category-manager-actions { display: flex; flex: 0 0 auto; gap: 5px; }
+.category-manager-actions button { padding: 7px 9px; font-size: 11px; }
+.category-manager-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.category-rename { display: flex; align-items: end; flex-wrap: wrap; gap: 7px; width: 100%; }
+.category-rename label { width: 100%; margin: 0; }
+.category-rename button { padding: 9px 11px; font-size: 11px; }
+@media (max-width: 1050px) { .category-manager-list { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .category-manager { padding: 19px; } .category-add > div { flex-direction: column; } .category-manager-row { align-items: stretch; flex-direction: column; } .category-manager-actions { justify-content: flex-start; } }

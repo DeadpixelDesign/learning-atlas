@@ -1,6 +1,7 @@
 import guideItems from './guide-catalog.json';
 
-export type Category = 'Cloud' | 'Linux' | 'Containers' | 'Web' | 'DevOps' | 'Security' | 'Data & AI' | 'Marketing' | 'AEO / SEO / SMO';
+// Category values are stable IDs. Personal display names live in the library.
+export type Category = string;
 export type Kind = 'resource' | 'credential';
 export type EntryType = 'Resource' | 'Career Path' | 'Course' | 'Certificate';
 export const categoryOptions: Category[] = ['Cloud', 'Linux', 'Containers', 'Web', 'DevOps', 'Security', 'Data & AI', 'Marketing', 'AEO / SEO / SMO'];
