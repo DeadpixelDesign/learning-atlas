@@ -1,7 +1,9 @@
 import guideItems from './guide-catalog.json';
 
-export type Category = 'Cloud' | 'Linux' | 'Containers' | 'Web' | 'DevOps' | 'Security' | 'Data & AI' | 'Marketing';
+export type Category = 'Cloud' | 'Linux' | 'Containers' | 'Web' | 'DevOps' | 'Security' | 'Data & AI' | 'Marketing' | 'AEO / SEO / SMO';
 export type Kind = 'resource' | 'credential';
+export type EntryType = 'Resource' | 'Career Path' | 'Course' | 'Certificate';
+export const categoryOptions: Category[] = ['Cloud', 'Linux', 'Containers', 'Web', 'DevOps', 'Security', 'Data & AI', 'Marketing', 'AEO / SEO / SMO'];
 export type Item = {
   id: string;
   provider: string;
@@ -13,10 +15,12 @@ export type Item = {
   badge?: boolean;
   priority?: 'P1' | 'P2' | 'P3';
   resourceType?: string;
+  entryType?: EntryType;
 };
 
 // Each URL points to a provider-owned page. Resource entries are not certifications.
 const core: Item[] = [
+  { id: 'ahrefs-aeo-course', provider: 'Ahrefs Academy', title: 'Answer Engine Optimization (AEO) Course', category: 'AEO / SEO / SMO', kind: 'resource', entryType: 'Course', summary: 'Free course on AI search, citations, content strategy, and measuring AEO results.', url: 'https://ahrefs.com/academy/aeo-course', priority: 'P1' },
   { id: 'microsoft-learn', provider: 'Microsoft Learn', title: 'Learning paths and modules', category: 'Cloud', kind: 'resource', summary: 'Browse guided Microsoft and Azure training.', url: 'https://learn.microsoft.com/training/' },
   { id: 'microsoft-credentials', provider: 'Microsoft Learn', title: 'Microsoft Credentials', category: 'Cloud', kind: 'resource', summary: 'Browse Microsoft exams and Applied Skills assessments.', url: 'https://learn.microsoft.com/credentials/' },
   { id: 'aws-skill-builder', provider: 'AWS', title: 'AWS Skill Builder', category: 'Cloud', kind: 'resource', summary: 'Digital training and learning plans for AWS.', url: 'https://skillbuilder.aws/' },
