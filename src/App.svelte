@@ -254,6 +254,14 @@
     message = 'Entry restored.';
   }
 
+  function resetEntry(item: Item) {
+    if (!confirm(`Reset “${item.title}” to its included version?`)) return;
+    const overrides = { ...library.overrides };
+    delete overrides[item.id];
+    saveLibrary({ ...library, overrides });
+    message = 'Included entry reset.';
+  }
+
   function exportBackup() {
     const payload = { format: 'learning-atlas', version: 2, exportedAt: new Date().toISOString(), progress, library };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -391,8 +399,8 @@
         <div class="manage-list">
           {#each managedItems as item (item.id)}
             <article class="manage-row" class:deleted={library.hiddenIds.includes(item.id)}>
-              <div><div class="manage-row-meta"><span class:credential={item.kind === 'credential'} class="kind-pill">{entryTypeOf(item).toUpperCase()}</span><span>{item.category}</span><span>{catalog.some((entry) => entry.id === item.id) ? 'Included' : 'Yours'}</span>{#if library.hiddenIds.includes(item.id)}<span>Deleted</span>{/if}</div><h2>{item.title}</h2><p>{item.provider} · {item.summary}</p></div>
-              <div class="manage-actions">{#if library.hiddenIds.includes(item.id)}<button class="secondary-button" onclick={() => restoreEntry(item)}>Restore</button>{:else}<button class="secondary-button" onclick={() => startEdit(item)}>Edit</button><button class="danger-button" onclick={() => deleteEntry(item)}>Delete</button>{/if}</div>
+              <div><div class="manage-row-meta"><span class:credential={item.kind === 'credential'} class="kind-pill">{entryTypeOf(item).toUpperCase()}</span><span>{item.category}</span><span>{catalog.some((entry) => entry.id === item.id) ? 'Included' : 'Yours'}</span>{#if library.overrides[item.id]}<span>Edited</span>{/if}{#if library.hiddenIds.includes(item.id)}<span>Deleted</span>{/if}</div><h2>{item.title}</h2><p>{item.provider} · {item.summary}</p></div>
+              <div class="manage-actions">{#if library.hiddenIds.includes(item.id)}<button class="secondary-button" onclick={() => restoreEntry(item)}>Restore</button>{:else}<button class="secondary-button" onclick={() => startEdit(item)}>Edit</button>{#if library.overrides[item.id]}<button class="secondary-button" onclick={() => resetEntry(item)}>Reset</button>{/if}<button class="danger-button" onclick={() => deleteEntry(item)}>Delete</button>{/if}</div>
             </article>
           {:else}<div class="empty-state"><h3>No entries found</h3><p>Try a different search or add an entry.</p></div>{/each}
         </div>

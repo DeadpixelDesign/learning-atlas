@@ -16,7 +16,7 @@ A responsive course and certification tracker built with Svelte and Vite. GitHub
 
 Open **Manage library** from the dashboard or sidebar. Add, edit, or delete Resources, Career Paths, Courses, and Certificates. Choose a category, including **AEO / SEO / SMO**. The included [Ahrefs Answer Engine Optimization course](https://ahrefs.com/academy/aeo-course) appears there as a **Course** learning resource; its training checkbox is separate from Ahrefs' optional exam.
 
-Edits to included entries are personal to your account. **Delete** hides an entry from the dashboard and completion totals; turn on **Show deleted** to restore it later. Its progress flags remain available when restored. New and edited entries sync through the same Firestore progress document, so no additional database or paid service is required.
+Edits to included entries are personal to your account; **Reset** returns an edited entry to its included version. **Delete** hides an entry from the dashboard and completion totals; turn on **Show deleted** to restore it later. Its progress flags remain available when restored. New and edited entries sync through the same Firestore progress document, so no additional database or paid service is required.
 
 ## Run locally
 
